@@ -84,6 +84,63 @@ func ClaudeErrorWrapperLocal(err error, code string, statusCode int) *dto.Claude
 	return claudeErr
 }
 
+const vendorRateLimitErrorCode = "200"
+
+// RelayRetryStatusCode returns the HTTP status used for automatic channel retry
+// decisions. Some upstreams respond with HTTP 200/429 and embed vendor error
+// code 200 to indicate rate limiting; promote that signal to 429 so retry logic
+// can failover to another channel.
+func RelayRetryStatusCode(apiErr *types.NewAPIError) int {
+	if apiErr == nil {
+		return 0
+	}
+	if hasVendorRateLimitErrorCode(apiErr) {
+		return http.StatusTooManyRequests
+	}
+	return apiErr.StatusCode
+}
+
+func hasVendorRateLimitErrorCode(apiErr *types.NewAPIError) bool {
+	if apiErr == nil {
+		return false
+	}
+	if openAIErrorCodeEquals(string(apiErr.GetErrorCode()), vendorRateLimitErrorCode) {
+		return true
+	}
+	if oaiErr, ok := apiErr.RelayError.(types.OpenAIError); ok {
+		return openAIErrorCodeEquals(oaiErr.Code, vendorRateLimitErrorCode)
+	}
+	return false
+}
+
+func openAIErrorCodeEquals(code any, target string) bool {
+	switch c := code.(type) {
+	case string:
+		return c == target
+	case float64:
+		return fmt.Sprintf("%v", int(c)) == target
+	case int:
+		return fmt.Sprintf("%d", c) == target
+	case int64:
+		return fmt.Sprintf("%d", c) == target
+	default:
+		if code == nil {
+			return false
+		}
+		return fmt.Sprintf("%v", code) == target
+	}
+}
+
+func TaskRelayRetryStatusCode(taskErr *taskdto.TaskError) int {
+	if taskErr == nil {
+		return 0
+	}
+	if openAIErrorCodeEquals(taskErr.Code, vendorRateLimitErrorCode) {
+		return http.StatusTooManyRequests
+	}
+	return taskErr.StatusCode
+}
+
 func RelayErrorHandler(ctx context.Context, resp *http.Response, showBodyWhenFail bool) (newApiErr *types.NewAPIError) {
 	newApiErr = types.InitOpenAIError(types.ErrorCodeBadResponseStatusCode, resp.StatusCode)
 
