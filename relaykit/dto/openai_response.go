@@ -423,6 +423,14 @@ func GetOpenAIError(errorField any) *types.OpenAIError {
 		if errCode, ok := err["code"]; ok {
 			openaiErr.Code = errCode
 		}
+		if statusRaw, ok := err["status"]; ok {
+			switch status := statusRaw.(type) {
+			case float64:
+				openaiErr.Status = int(status)
+			case int:
+				openaiErr.Status = status
+			}
+		}
 		return openaiErr
 	case string:
 		// 处理简单字符串错误
