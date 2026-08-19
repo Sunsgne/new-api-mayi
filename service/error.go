@@ -88,49 +88,21 @@ const vendorRateLimitErrorCode = "200"
 
 // RelayRetryStatusCode returns the HTTP status used for automatic channel retry
 // decisions. Some upstreams respond with HTTP 200/429 and embed vendor error
-// code 200 to indicate rate limiting; promote that signal to 429 so retry logic
-// can failover to another channel.
+// code 200 in the response body to indicate rate limiting; promote that signal
+// to 429 so retry logic can fail over to another channel. The client still
+// receives the upstream's original HTTP status and error body unchanged.
 func RelayRetryStatusCode(apiErr *types.NewAPIError) int {
 	if apiErr == nil {
 		return 0
 	}
-	if hasVendorRateLimitErrorCode(apiErr) {
+	if oaiErr, ok := apiErr.RelayError.(types.OpenAIError); ok && openAIErrorCodeEquals(oaiErr.Code, vendorRateLimitErrorCode) {
 		return http.StatusTooManyRequests
 	}
 	return apiErr.StatusCode
 }
 
-func hasVendorRateLimitErrorCode(apiErr *types.NewAPIError) bool {
-	if apiErr == nil {
-		return false
-	}
-	if openAIErrorCodeEquals(string(apiErr.GetErrorCode()), vendorRateLimitErrorCode) {
-		return true
-	}
-	if oaiErr, ok := apiErr.RelayError.(types.OpenAIError); ok {
-		return openAIErrorCodeEquals(oaiErr.Code, vendorRateLimitErrorCode)
-	}
-	return false
-}
-
-func openAIErrorCodeEquals(code any, target string) bool {
-	switch c := code.(type) {
-	case string:
-		return c == target
-	case float64:
-		return fmt.Sprintf("%v", int(c)) == target
-	case int:
-		return fmt.Sprintf("%d", c) == target
-	case int64:
-		return fmt.Sprintf("%d", c) == target
-	default:
-		if code == nil {
-			return false
-		}
-		return fmt.Sprintf("%v", code) == target
-	}
-}
-
+// TaskRelayRetryStatusCode is the task-relay equivalent of RelayRetryStatusCode:
+// it promotes a wrapped vendor rate-limit error code 200 to 429 for retry decisions.
 func TaskRelayRetryStatusCode(taskErr *taskdto.TaskError) int {
 	if taskErr == nil {
 		return 0
@@ -139,6 +111,28 @@ func TaskRelayRetryStatusCode(taskErr *taskdto.TaskError) int {
 		return http.StatusTooManyRequests
 	}
 	return taskErr.StatusCode
+}
+
+// openAIErrorCodeEquals compares an upstream error code (parsed from JSON as
+// string, float64, or another scalar type) against a target string value.
+func openAIErrorCodeEquals(code any, target string) bool {
+	switch c := code.(type) {
+	case string:
+		return c == target
+	case float64:
+		return c == math.Trunc(c) && strconv.FormatInt(int64(c), 10) == target
+	case int:
+		return strconv.Itoa(c) == target
+	case int64:
+		return strconv.FormatInt(c, 10) == target
+	case json.Number:
+		return c.String() == target
+	default:
+		if code == nil {
+			return false
+		}
+		return fmt.Sprintf("%v", code) == target
+	}
 }
 
 func RelayErrorHandler(ctx context.Context, resp *http.Response, showBodyWhenFail bool) (newApiErr *types.NewAPIError) {
