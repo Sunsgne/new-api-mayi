@@ -125,6 +125,7 @@ var channelAffinitySetting = ChannelAffinitySetting{
 			KeySources: []ChannelAffinityKeySource{
 				{Type: "gjson", Path: "previous_response_id"},
 				{Type: "gjson", Path: "tools.0.container.file_ids.0"},
+				{Type: "gjson", Path: `input.0.content.#(file_id!="").file_id`},
 				{Type: "gjson", Path: "input.#.content.#.file_id"},
 			},
 			ValueRegex:         "",
