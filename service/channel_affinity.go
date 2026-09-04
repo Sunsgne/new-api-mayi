@@ -320,18 +320,48 @@ func extractChannelAffinityValue(c *gin.Context, src operation_setting.ChannelAf
 			return ""
 		}
 		res := gjson.GetBytes(body, src.Path)
-		if !res.Exists() {
-			return ""
-		}
-		switch res.Type {
-		case gjson.String, gjson.Number, gjson.True, gjson.False:
-			return strings.TrimSpace(res.String())
-		default:
-			return strings.TrimSpace(res.Raw)
-		}
+		return normalizeChannelAffinityGJSONValue(res)
 	default:
 		return ""
 	}
+}
+
+// normalizeChannelAffinityGJSONValue turns a gjson result into a sticky key.
+// Multipath projections like input.#.content.#.file_id can exist as [[]] / []
+// even when no real file_id is present; those must not become affinity keys.
+func normalizeChannelAffinityGJSONValue(res gjson.Result) string {
+	if !res.Exists() || res.Type == gjson.Null {
+		return ""
+	}
+	switch res.Type {
+	case gjson.String, gjson.Number, gjson.True, gjson.False:
+		return strings.TrimSpace(res.String())
+	case gjson.JSON:
+		if first := firstNonEmptyGJSONString(res); first != "" {
+			return first
+		}
+		return ""
+	default:
+		return ""
+	}
+}
+
+func firstNonEmptyGJSONString(res gjson.Result) string {
+	if res.Type == gjson.String || res.Type == gjson.Number || res.Type == gjson.True || res.Type == gjson.False {
+		return strings.TrimSpace(res.String())
+	}
+	if res.IsArray() || res.IsObject() {
+		var found string
+		res.ForEach(func(_, value gjson.Result) bool {
+			if s := firstNonEmptyGJSONString(value); s != "" {
+				found = s
+				return false
+			}
+			return true
+		})
+		return found
+	}
+	return ""
 }
 
 func buildChannelAffinityCacheKeySuffix(rule operation_setting.ChannelAffinityRule, modelName string, usingGroup string, affinityValue string) string {
