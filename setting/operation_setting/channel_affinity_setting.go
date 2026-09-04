@@ -117,6 +117,24 @@ var channelAffinitySetting = ChannelAffinitySetting{
 	DefaultTTLSeconds:     3600,
 	Rules: []ChannelAffinityRule{
 		{
+			// Bind Azure/OpenAI resource-scoped IDs so retries never hop to another
+			// resource that cannot see the file/response/container.
+			Name:       "openai azure resource",
+			ModelRegex: []string{"^gpt-.*$"},
+			PathRegex:  []string{"/v1/responses"},
+			KeySources: []ChannelAffinityKeySource{
+				{Type: "gjson", Path: "previous_response_id"},
+				{Type: "gjson", Path: "tools.0.container.file_ids.0"},
+				{Type: "gjson", Path: "input.#.content.#.file_id"},
+			},
+			ValueRegex:         "",
+			TTLSeconds:         0,
+			SkipRetryOnFailure: true,
+			IncludeUsingGroup:  true,
+			IncludeRuleName:    true,
+			UserAgentInclude:   nil,
+		},
+		{
 			Name:       "codex cli trace",
 			ModelRegex: []string{"^gpt-.*$"},
 			PathRegex:  []string{"/v1/responses"},
